@@ -208,7 +208,11 @@ public class Docker implements Closeable {
         }
 
         if (StringUtils.isNotBlank(extraArgs)) {
-            args.add(extraArgs);
+            String[] splittedArgs = extraArgs.split("\\s+");
+
+            for (String aSplited : splittedArgs) {
+                args.add(aSplited);
+            }
         }
 
         if (!"host".equals(net)){
