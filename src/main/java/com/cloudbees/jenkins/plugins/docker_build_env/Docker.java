@@ -173,15 +173,16 @@ public class Docker implements Closeable {
             throw new RuntimeException("Failed to remove docker container "+container);
     }
 
-    public String runDetached(String image, String workdir, Map<String, String> volumes, Map<Integer, Integer> ports, Map<String, String> links, EnvVars environment, Set sensitiveBuildVariables, String net, String memory, String cpu, String... command) throws IOException, InterruptedException {
+    public String runDetached(String image, String workdir, Map<String, String> volumes, Map<Integer, Integer> ports, Map<String, String> links, EnvVars environment, Set sensitiveBuildVariables, String net, String memory, String cpu, String extraArgs, String... command) throws IOException, InterruptedException {
 
         String docker0 = getDocker0Ip(launcher, image);
 
 
         ArgumentListBuilder args = dockerCommand()
             .add("run", "--tty", "--detach");
+
         if (privileged) {
-            args.add( "--privileged");
+            args.add("--privileged");
         }
         args.add("--workdir", workdir);
         for (Map.Entry<String, String> volume : volumes.entrySet()) {
@@ -204,6 +205,10 @@ public class Docker implements Closeable {
 
         if (StringUtils.isNotBlank(cpu)) {
             args.add("--cpu-shares", cpu);
+        }
+
+        if (StringUtils.isNotBlank(extraArgs)) {
+            args.add(extraArgs);
         }
 
         if (!"host".equals(net)){
@@ -246,7 +251,7 @@ public class Docker implements Closeable {
                 .add("run", "--rm")
                 .add("--entrypoint")
                 .add("/bin/true")
-                .add("alpine:3.2");
+                .add(image);
 
         int status = launcher.launch()
                 .envs(getEnvVars())
@@ -278,7 +283,7 @@ public class Docker implements Closeable {
                 .add("run", "--tty", "--rm")
                 .add("--entrypoint")
                 .add("/sbin/ip")
-                .add("alpine:3.2")
+                .add(image)
                 .add("route");
 
         ByteArrayOutputStream out = new ByteArrayOutputStream();
