@@ -75,7 +75,10 @@ THE SOFTWARE.
           </f:entry>
           <f:entry field="dockerSlaveTmpDir" title="Docker host's TMPDIR for the slave (if running in a container)">
             <f:textbox/>
-        </f:entry>
+          </f:entry>
+          <f:entry field="additionalArguments" title="Additional Arguments">
+            <f:textbox/>
+          </f:entry>
       </f:advanced>
 
     </f:nested>

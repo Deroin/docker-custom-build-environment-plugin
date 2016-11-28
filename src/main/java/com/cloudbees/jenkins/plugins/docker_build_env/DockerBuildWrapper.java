@@ -79,12 +79,14 @@ public class DockerBuildWrapper extends BuildWrapper {
 
     private String dockerSlaveTmpDir;
 
+    private String additionalArguments;
+
     @DataBoundConstructor
     public DockerBuildWrapper(DockerImageSelector selector, String dockerInstallation, DockerServerEndpoint dockerHost, String dockerRegistryCredentials, boolean verbose, boolean privileged,
                               List<Volume> volumes, String group, String command,
                               boolean forcePull,
                               String net, String memory, String cpu,
-                              String dockerSlaveJenkinsRoot, String dockerSlaveTmpDir) {
+                              String dockerSlaveJenkinsRoot, String dockerSlaveTmpDir, String additionalArguments) {
         this.selector = selector;
         this.dockerInstallation = dockerInstallation;
         this.dockerHost = dockerHost;
@@ -100,6 +102,7 @@ public class DockerBuildWrapper extends BuildWrapper {
         this.cpu = cpu;
         this.dockerSlaveJenkinsRoot = dockerSlaveJenkinsRoot;
         this.dockerSlaveTmpDir = dockerSlaveTmpDir;
+        this.additionalArguments = additionalArguments;
     }
 
     public DockerImageSelector getSelector() {
@@ -151,6 +154,8 @@ public class DockerBuildWrapper extends BuildWrapper {
     public String getDockerSlaveJenkinsRoot() { return dockerSlaveJenkinsRoot; }
 
     public String getDockerSlaveTmpDir() { return dockerSlaveTmpDir; }
+
+    public String getAdditionalArguments() { return additionalArguments; }
 
     @Override
     public Launcher decorateLauncher(final AbstractBuild build, final Launcher launcher, final BuildListener listener) throws IOException, InterruptedException, Run.RunnerAbortedException {
@@ -246,7 +251,7 @@ public class DockerBuildWrapper extends BuildWrapper {
             return runInContainer.getDocker().runDetached(runInContainer.image, workdir,
                     runInContainer.getVolumes(build), runInContainer.getPortsMap(), links,
                     environment, build.getSensitiveBuildVariables(), net, memory, cpu,
-                    command); // Command expected to hung until killed
+                    additionalArguments, command); // Command expected to hung until killed
 
         } catch (InterruptedException e) {
             throw new RuntimeException("Interrupted");
