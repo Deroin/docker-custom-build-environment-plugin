@@ -219,6 +219,7 @@ public class Docker implements Closeable {
             for (String argument : splittedArgs) {
                 args.add(argument);
             }
+        }
 
         if (!"host".equals(net)){
             //--add-host and --net=host are incompatible
