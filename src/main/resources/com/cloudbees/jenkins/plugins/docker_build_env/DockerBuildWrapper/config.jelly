@@ -79,6 +79,9 @@ THE SOFTWARE.
           <f:entry field="additionalArguments" title="Additional Arguments">
             <f:textbox/>
           </f:entry>
+          <f:entry field="blockingStartupCommand" title="Blocking startup command">
+            <f:textbox/>
+          </f:entry>
       </f:advanced>
 
     </f:nested>

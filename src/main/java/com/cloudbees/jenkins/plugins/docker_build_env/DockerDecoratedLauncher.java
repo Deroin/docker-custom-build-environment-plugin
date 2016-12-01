@@ -33,6 +33,7 @@ public class DockerDecoratedLauncher extends Launcher.DecoratedLauncher {
         this.userId = userId;
     }
 
+    @Override
     public Proc launch(String[] cmd, boolean[] mask, String[] env, InputStream in, OutputStream out, FilePath workDir) throws IOException {
         return launch(launch().cmds(cmd).masks(mask).envs(env).stdin(in).stdout(out).pwd(workDir));
     }

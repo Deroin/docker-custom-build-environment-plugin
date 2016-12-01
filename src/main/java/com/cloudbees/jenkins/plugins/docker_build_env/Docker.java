@@ -10,18 +10,12 @@ import hudson.util.ArgumentListBuilder;
 import org.apache.commons.io.LineIterator;
 import org.apache.commons.io.output.TeeOutputStream;
 import org.apache.commons.lang.StringUtils;
-
 import org.jenkinsci.plugins.docker.commons.credentials.DockerRegistryEndpoint;
 import org.jenkinsci.plugins.docker.commons.credentials.DockerServerEndpoint;
 import org.jenkinsci.plugins.docker.commons.credentials.KeyMaterial;
 import org.jenkinsci.plugins.docker.commons.tools.DockerTool;
-import org.w3c.tidy.Out;
 
-import java.io.ByteArrayOutputStream;
-import java.io.Closeable;
-import java.io.IOException;
-import java.io.OutputStream;
-import java.io.StringReader;
+import java.io.*;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.InterfaceAddress;
@@ -38,7 +32,7 @@ import java.util.regex.Pattern;
  */
 public class Docker implements Closeable {
 
-    private static boolean debug = Boolean.getBoolean(Docker.class.getName()+".debug");
+    private static boolean debug = Boolean.getBoolean(Docker.class.getName() + ".debug");
     private final Launcher launcher;
     private final TaskListener listener;
     private final String dockerExecutable;
@@ -48,11 +42,24 @@ public class Docker implements Closeable {
     private final boolean privileged;
     private final AbstractBuild build;
     private EnvVars envVars;
+    private KeyMaterial dockerEnv;
 
-    public Docker(DockerServerEndpoint dockerHost, String dockerInstallation, String credentialsId, AbstractBuild build, Launcher launcher, TaskListener listener, boolean verbose, boolean privileged) throws IOException, InterruptedException {
+    public Docker(DockerServerEndpoint dockerHost,
+                  String dockerInstallation,
+                  String credentialsId,
+                  AbstractBuild build,
+                  Launcher launcher,
+                  TaskListener listener,
+                  boolean verbose,
+                  boolean privileged) throws IOException, InterruptedException {
         this.dockerHost = dockerHost;
-        this.dockerExecutable = DockerTool.getExecutable(dockerInstallation, Computer.currentComputer().getNode(), listener, build.getEnvironment(listener));
-        this.registryEndpoint = new DockerRegistryEndpoint(null, credentialsId);
+        this.dockerExecutable = DockerTool.getExecutable(
+                dockerInstallation,
+                Computer.currentComputer().getNode(),
+                listener,
+                build.getEnvironment(listener)
+        );
+        this.registryEndpoint = new DockerRegistryEndpoint(null/*http://registry.sellercenter.net:5000*/, credentialsId);
         this.launcher = launcher;
         this.listener = listener;
         this.build = build;
@@ -60,60 +67,12 @@ public class Docker implements Closeable {
         this.privileged = privileged;
     }
 
-
-    private KeyMaterial dockerEnv;
-
-    public void setupCredentials(AbstractBuild build) throws IOException, InterruptedException {
-        this.dockerEnv = dockerHost.newKeyMaterialFactory(build)
-                .plus(   registryEndpoint.newKeyMaterialFactory(build))
-                .materialize();
-    }
-
-
-    @Override
-    public void close() throws IOException {
-        dockerEnv.close();
-    }
-
-    public boolean hasImage(String image) throws IOException, InterruptedException {
-        ArgumentListBuilder args = dockerCommand()
-            .add("inspect", image);
-        
-        OutputStream out = verbose ? listener.getLogger() : new ByteArrayOutputStream();
-        OutputStream err = verbose ? listener.getLogger() : new ByteArrayOutputStream();
-
-        int status = launcher.launch()
-                .envs(getEnvVars())
-                .cmds(args)
-                .stdout(out).stderr(err).quiet(!verbose).join();
-        return status == 0;
-    }
-
-    private EnvVars getEnvVars() throws IOException, InterruptedException {
-        if (envVars == null) {
-            envVars = new EnvVars(build.getEnvironment(listener)).overrideAll(dockerEnv.env());
-        }
-        return envVars;
-    }
-
-    public boolean pullImage(String image) throws IOException, InterruptedException {
-        ArgumentListBuilder args = dockerCommand()
-            .add("pull", image);
-        
-        OutputStream out = verbose ? listener.getLogger() : new ByteArrayOutputStream();
-        OutputStream err = verbose ? listener.getLogger() : new ByteArrayOutputStream();
-        int status = launcher.launch()
-                .envs(getEnvVars())
-                .cmds(args)
-                .stdout(out).stderr(err).join();
-        return status == 0;
-    }
-
-
-    public String buildImage(FilePath workspace, String dockerfile, boolean forcePull) throws IOException, InterruptedException {
+    public String buildImage(FilePath workspace,
+                             String dockerfile,
+                             boolean forcePull) throws IOException, InterruptedException {
 
         ArgumentListBuilder args = dockerCommand()
-            .add("build");
+                .add("build");
 
         if (forcePull)
             args.add("--pull");
@@ -128,17 +87,16 @@ public class Docker implements Closeable {
         TeeOutputStream teeOutputStream = new TeeOutputStream(logOutputStream, resultOutputStream);
 
         int status = launcher.launch()
-                .envs(getEnvVars())
-                .cmds(args)
-                .stdout(teeOutputStream).stderr(err).join();
+                             .envs(getEnvVars())
+                             .cmds(args)
+                             .stdout(teeOutputStream).stderr(err).join();
         if (status != 0) {
             throw new RuntimeException("Failed to build docker image from project Dockerfile");
         }
 
         Pattern pattern = Pattern.compile("Successfully built (.*)");
         Matcher matcher = pattern.matcher(resultOutputStream.toString("UTF-8"));
-        if (!matcher.find())
-        {
+        if (!matcher.find()) {
             throw new RuntimeException("Failed to lookup the docker build ImageID.");
         }
 
@@ -154,45 +112,154 @@ public class Docker implements Closeable {
         return imageId;
     }
 
+    @Override
+    public void close() throws IOException {
+        dockerEnv.close();
+    }
+
+    public void executeIn(String container,
+                          String userId,
+                          Launcher.ProcStarter starter,
+                          EnvVars environment) throws IOException, InterruptedException {
+        List<String> prefix = dockerCommandArgs();
+        prefix.add("exec");
+        prefix.add("--tty");
+        prefix.add("--user");
+        prefix.add(userId);
+        prefix.add(container);
+
+        if (!environment.isEmpty()) {
+            prefix.add("env");
+
+            // Build a list of environment, hidding node's one
+            for (Map.Entry<String, String> e : environment.entrySet()) {
+                prefix.add(e.getKey() + "=" + e.getValue());
+            }
+        }
+
+        starter.cmds().addAll(0, prefix);
+        if (starter.masks() != null) {
+            boolean[] masks = new boolean[starter.masks().length + prefix.size()];
+            System.arraycopy(starter.masks(), 0, masks, prefix.size(), starter.masks().length);
+            starter.masks(masks);
+        }
+
+        starter.envs(getEnvVars());
+    }
+
+    public EnvVars getEnv(String container, Launcher launcher) throws IOException, InterruptedException {
+        final ArgumentListBuilder args = dockerCommand()
+                .add("exec")
+                .add("--tty")
+                .add(container)
+                .add("env");
+
+        final ByteArrayOutputStream out = new ByteArrayOutputStream();
+        int status = launcher.launch()
+                             .envs(getEnvVars())
+                             .cmds(args)
+                             .stdout(out).quiet(!verbose).stderr(listener.getLogger()).join();
+
+        if (status != 0) {
+            throw new RuntimeException("Failed to retrieve container's environment");
+        }
+
+        EnvVars env = new EnvVars();
+        LineIterator it = new LineIterator(new StringReader(out.toString()));
+        while (it.hasNext()) {
+            env.addLine(it.nextLine());
+        }
+        return env;
+    }
+
+    public boolean hasImage(String image) throws IOException, InterruptedException {
+        ArgumentListBuilder args = dockerCommand()
+                .add("inspect", image);
+
+        OutputStream out = verbose ? listener.getLogger() : new ByteArrayOutputStream();
+        OutputStream err = verbose ? listener.getLogger() : new ByteArrayOutputStream();
+
+        int status = launcher.launch()
+                             .envs(getEnvVars())
+                             .cmds(args)
+                             .stdout(out).stderr(err).quiet(!verbose).join();
+        return status == 0;
+    }
+
     public void kill(String container) throws IOException, InterruptedException {
         ArgumentListBuilder args = dockerCommand()
-            .add("kill", container);
-
+                .add("kill", container);
 
         listener.getLogger().println("Stopping Docker container after build completion");
         OutputStream out = verbose ? listener.getLogger() : new ByteArrayOutputStream();
         OutputStream err = verbose ? listener.getLogger() : new ByteArrayOutputStream();
         int status = launcher.launch()
-                .envs(getEnvVars())
-                .cmds(args)
-                .stdout(out).stderr(err).quiet(!verbose).join();
+                             .envs(getEnvVars())
+                             .cmds(args)
+                             .stdout(out).stderr(err).quiet(!verbose).join();
         if (status != 0)
-            throw new RuntimeException("Failed to stop docker container "+container);
+            throw new RuntimeException("Failed to stop docker container " + container);
 
         args = new ArgumentListBuilder()
-            .add(dockerExecutable)
-            .add("rm", "--force", container);
+                .add(dockerExecutable)
+                .add("rm", "--force", container);
         status = launcher.launch()
-                .envs(getEnvVars())
-                .cmds(args)
-                .stdout(out).stderr(err).quiet(!verbose).join();
+                         .envs(getEnvVars())
+                         .cmds(args)
+                         .stdout(out).stderr(err).quiet(!verbose).join();
         if (status != 0)
-            throw new RuntimeException("Failed to remove docker container "+container);
+            throw new RuntimeException("Failed to remove docker container " + container);
     }
 
-    public String runDetached(String image, String workdir, Map<String, String> volumes, Map<Integer, Integer> ports, Map<String, String> links, EnvVars environment, Set sensitiveBuildVariables, String net, String memory, String cpu, String additionalArguments, String... command) throws IOException, InterruptedException {
+    public void logs(String container) throws IOException, InterruptedException {
+        ArgumentListBuilder args = dockerCommand()
+                .add("logs", "-t", container);
+
+        listener.getLogger().println("Retrieving container logs");
+        OutputStream out = listener.getLogger();
+        OutputStream err = listener.getLogger();
+        int status = launcher.launch()
+                             .cmds(args)
+                             .stdout(out).stderr(err).quiet(true).join();
+        if (status != 0) listener.error("Unable to retrieve logs from container");
+    }
+
+    public boolean pullImage(String image) throws IOException, InterruptedException {
+        ArgumentListBuilder args = dockerCommand()
+                .add("pull", image);
+
+        OutputStream out = verbose ? listener.getLogger() : new ByteArrayOutputStream();
+        OutputStream err = verbose ? listener.getLogger() : new ByteArrayOutputStream();
+        int status = launcher.launch()
+                             .envs(getEnvVars())
+                             .cmds(args)
+                             .stdout(out).stderr(err).join();
+        return status == 0;
+    }
+
+    public String runDetached(String image,
+                              String workdir,
+                              Map<String, String> volumes,
+                              Map<Integer, Integer> ports,
+                              Map<String, String> links,
+                              EnvVars environment,
+                              Set sensitiveBuildVariables,
+                              String net,
+                              String memory,
+                              String cpu,
+                              String additionalArguments,
+                              String... command) throws IOException, InterruptedException {
 
         String docker0 = getDocker0Ip(launcher, image);
 
-
         ArgumentListBuilder args = dockerCommand()
-            .add("run", "--tty", "--detach");
+                .add("run", "--tty", "--detach");
         if (privileged) {
             args.add("--privileged");
         }
         args.add("--workdir", workdir);
         for (Map.Entry<String, String> volume : volumes.entrySet()) {
-            args.add("--volume", volume.getKey() + ":" + volume.getValue() + ":rw" );
+            args.add("--volume", volume.getKey() + ":" + volume.getValue() + ":rw");
         }
         for (Map.Entry<Integer, Integer> port : ports.entrySet()) {
             args.add("--publish", port.getKey() + ":" + port.getValue());
@@ -221,9 +288,9 @@ public class Docker implements Closeable {
             }
         }
 
-        if (!"host".equals(net)){
+        if (!"host".equals(net)) {
             //--add-host and --net=host are incompatible
-            args.add("--add-host", "dockerhost:"+docker0);
+            args.add("--add-host", "dockerhost:" + docker0);
         }
 
         for (Map.Entry<String, String> e : environment.entrySet()) {
@@ -232,24 +299,48 @@ public class Docker implements Closeable {
             }
             args.add("--env");
             if (sensitiveBuildVariables.contains(e.getKey()))
-                args.addMasked(e.getKey()+"="+e.getValue());
+                args.addMasked(e.getKey() + "=" + e.getValue());
             else
-                args.add(e.getKey()+"="+e.getValue());
+                args.add(e.getKey() + "=" + e.getValue());
         }
         args.add(image).add(command);
 
         ByteArrayOutputStream out = new ByteArrayOutputStream();
 
         int status = launcher.launch()
-                .envs(getEnvVars())
-                .cmds(args)
-                .stdout(out).quiet(!verbose).stderr(listener.getLogger()).join();
+                             .envs(getEnvVars())
+                             .cmds(args)
+                             .stdout(out).quiet(!verbose).stderr(listener.getLogger()).join();
 
         if (status != 0) {
             throw new RuntimeException("Failed to run docker image");
         }
         String container = out.toString("UTF-8").trim();
         return container;
+    }
+
+    public void setupCredentials(AbstractBuild build) throws IOException, InterruptedException {
+        this.dockerEnv = dockerHost.newKeyMaterialFactory(build)
+                                   .plus(registryEndpoint.newKeyMaterialFactory(build))
+                                   .materialize();
+    }
+
+    private ArgumentListBuilder dockerCommand() {
+        ArgumentListBuilder args = new ArgumentListBuilder();
+        for (String s : dockerCommandArgs()) {
+            args.add(s);
+        }
+        return args;
+    }
+
+    private List<String> dockerCommandArgs() {
+        List<String> args = new ArrayList<String>();
+        args.add(dockerExecutable);
+        if (dockerHost.getUri() != null) {
+            args.add("-H");
+            args.add(dockerHost.getUri());
+        }
+        return args;
     }
 
     private String getDocker0Ip(Launcher launcher, String image) throws IOException, InterruptedException {
@@ -264,12 +355,12 @@ public class Docker implements Closeable {
                 .add("alpine:3.2");
 
         int status = launcher.launch()
-                .envs(getEnvVars())
-                .cmds(args)
-                .stdout(TaskListener.NULL).quiet(!verbose).stderr(listener.getLogger()).join();
+                             .envs(getEnvVars())
+                             .cmds(args)
+                             .stdout(TaskListener.NULL).quiet(!verbose).stderr(listener.getLogger()).join();
 
         if (status != 0) {
-            throw new RuntimeException("Failed to run docker image "+image);
+            throw new RuntimeException("Failed to run docker image " + image);
         }
 
         // docker0 should be setup now, let's retrieve it
@@ -299,9 +390,9 @@ public class Docker implements Closeable {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
 
         status = launcher.launch()
-                .envs(getEnvVars())
-                .cmds(args)
-                .stdout(out).quiet(!verbose).stderr(listener.getLogger()).join();
+                         .envs(getEnvVars())
+                         .cmds(args)
+                         .stdout(out).quiet(!verbose).stderr(listener.getLogger()).join();
 
         if (status != 0) {
             throw new RuntimeException("Failed to retrieve Docker daemon bridge IP");
@@ -310,89 +401,14 @@ public class Docker implements Closeable {
         String route = out.toString("UTF-8").trim();
 
         // equivalent to `awk '/default/ { print $3 }'` but we can't assume awk is available
-        String dockerhost = route.substring(route.indexOf("default")) .split(" ")[2];
+        String dockerhost = route.substring(route.indexOf("default")).split(" ")[2];
         return dockerhost;
     }
 
-
-    public EnvVars getEnv(String container, Launcher launcher) throws IOException, InterruptedException {
-        final ArgumentListBuilder args = dockerCommand()
-                .add("exec")
-                .add("--tty")
-                .add(container)
-                .add("env");
-
-        final ByteArrayOutputStream out = new ByteArrayOutputStream();
-        int status = launcher.launch()
-                .envs(getEnvVars())
-                .cmds(args)
-                .stdout(out).quiet(!verbose).stderr(listener.getLogger()).join();
-
-        if (status != 0) {
-            throw new RuntimeException("Failed to retrieve container's environment");
+    private EnvVars getEnvVars() throws IOException, InterruptedException {
+        if (envVars == null) {
+            envVars = new EnvVars(build.getEnvironment(listener)).overrideAll(dockerEnv.env());
         }
-
-        EnvVars env = new EnvVars();
-        LineIterator it = new LineIterator(new StringReader(out.toString()));
-        while (it.hasNext()) {
-            env.addLine(it.nextLine());
-        }
-        return env;
-    }
-
-
-    public void executeIn(String container, String userId, Launcher.ProcStarter starter, EnvVars environment) throws IOException, InterruptedException {
-        List<String> prefix = dockerCommandArgs();
-        prefix.add("exec");
-        prefix.add("--tty");
-        prefix.add("--user");
-        prefix.add(userId);
-        prefix.add(container);
-        prefix.add("env");
-
-        // Build a list of environment, hidding node's one
-        for (Map.Entry<String, String> e : environment.entrySet()) {
-            prefix.add(e.getKey()+"="+e.getValue());
-        }
-
-        starter.cmds().addAll(0, prefix);
-        if (starter.masks() != null) {
-            boolean[] masks = new boolean[starter.masks().length + prefix.size()];
-            System.arraycopy(starter.masks(), 0, masks, prefix.size(), starter.masks().length);
-            starter.masks(masks);
-        }
-
-        starter.envs(getEnvVars());
-    }
-
-    private ArgumentListBuilder dockerCommand() {
-        ArgumentListBuilder args = new ArgumentListBuilder();
-        for (String s : dockerCommandArgs()) {
-            args.add(s);
-        }
-        return args;
-    }
-
-    private List<String> dockerCommandArgs() {
-        List<String> args = new ArrayList<String>();
-        args.add(dockerExecutable);
-        if (dockerHost.getUri() != null) {
-            args.add("-H");
-            args.add(dockerHost.getUri());
-        }
-        return args;
-    }
-
-    public void logs(String container) throws IOException, InterruptedException {
-        ArgumentListBuilder args = dockerCommand()
-            .add("logs", "-t", container);
-
-        listener.getLogger().println("Retrieving container logs");
-        OutputStream out = listener.getLogger();
-        OutputStream err = listener.getLogger();
-        int status = launcher.launch()
-                .cmds(args)
-                .stdout(out).stderr(err).quiet(true).join();
-        if (status != 0) listener.error("Unable to retrieve logs from container");
+        return envVars;
     }
 }
