@@ -46,7 +46,7 @@ public class Docker implements Closeable {
 
     public Docker(DockerServerEndpoint dockerHost,
                   String dockerInstallation,
-                  String credentialsId,
+                  DockerImageSelector selector,
                   AbstractBuild build,
                   Launcher launcher,
                   TaskListener listener,
@@ -59,7 +59,14 @@ public class Docker implements Closeable {
                 listener,
                 build.getEnvironment(listener)
         );
-        this.registryEndpoint = new DockerRegistryEndpoint(null/*http://registry.sellercenter.net:5000*/, credentialsId);
+        if (selector instanceof PullDockerImageSelector) {
+            this.registryEndpoint = DockerRegistryEndpoint.fromImageName(
+                    ((PullDockerImageSelector) selector).getImage(),
+                    ((PullDockerImageSelector) selector).getDockerRegistryCredentials()
+            );
+        } else {
+            this.registryEndpoint = new DockerRegistryEndpoint(null, null);
+        }
         this.launcher = launcher;
         this.listener = listener;
         this.build = build;
