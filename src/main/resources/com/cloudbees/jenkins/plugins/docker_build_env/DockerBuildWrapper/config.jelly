@@ -23,7 +23,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 -->
 <?jelly escape-by-default='true'?>
-<j:jelly xmlns:j="jelly:core" xmlns:f="/lib/form" xmlns:st="jelly:stapler" xmlns:d="/lib/docker/commons" xmlns:c="/lib/credentials">
+<j:jelly xmlns:j="jelly:core" xmlns:f="/lib/form" xmlns:st="jelly:stapler" xmlns:d="/lib/docker/commons">
     <f:nested>
         <f:entry title="Docker image to use">
             <f:hetero-radio field="selector" descriptors="${descriptor.selectors()}" />
@@ -32,10 +32,6 @@ THE SOFTWARE.
 
         <f:advanced>
           <f:property field="dockerHost"/>
-          <f:entry field="dockerRegistryCredentials" title="Docker registry credentials">
-              <c:select />
-          </f:entry>
-
           <f:entry title="Volumes" field="volumes">
             <f:repeatableProperty field="volumes">
                 <f:entry title="">

@@ -1,9 +1,5 @@
 package com.cloudbees.jenkins.plugins.docker_build_env;
 
-import com.cloudbees.plugins.credentials.CredentialsProvider;
-import com.cloudbees.plugins.credentials.common.StandardCredentials;
-import com.cloudbees.plugins.credentials.common.StandardListBoxModel;
-import com.cloudbees.plugins.credentials.domains.DomainRequirement;
 import hudson.EnvVars;
 import hudson.Extension;
 import hudson.Launcher;
@@ -11,17 +7,12 @@ import hudson.model.*;
 import hudson.remoting.Callable;
 import hudson.tasks.BuildWrapper;
 import hudson.tasks.BuildWrapperDescriptor;
-import hudson.util.ListBoxModel;
-import jenkins.authentication.tokens.api.AuthenticationTokens;
 import jenkins.model.Jenkins;
 import jenkins.security.MasterToSlaveCallable;
-import org.jenkinsci.plugins.docker.commons.credentials.DockerRegistryToken;
 import org.jenkinsci.plugins.docker.commons.credentials.DockerServerEndpoint;
 import org.jenkinsci.plugins.tokenmacro.MacroEvaluationException;
 import org.jenkinsci.plugins.tokenmacro.TokenMacro;
-import org.kohsuke.stapler.AncestorInPath;
 import org.kohsuke.stapler.DataBoundConstructor;
-import org.kohsuke.stapler.QueryParameter;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -48,7 +39,6 @@ public class DockerBuildWrapper extends BuildWrapper {
     private final DockerImageSelector selector;
     private final String dockerInstallation;
     private final DockerServerEndpoint dockerHost;
-    private final String dockerRegistryCredentials;
     private final boolean verbose;
     private final boolean privileged;
     private final boolean forcePull;
@@ -68,7 +58,6 @@ public class DockerBuildWrapper extends BuildWrapper {
     public DockerBuildWrapper(DockerImageSelector selector,
                               String dockerInstallation,
                               DockerServerEndpoint dockerHost,
-                              String dockerRegistryCredentials,
                               boolean verbose,
                               boolean privileged,
                               List<Volume> volumes,
@@ -85,7 +74,6 @@ public class DockerBuildWrapper extends BuildWrapper {
         this.selector = selector;
         this.dockerInstallation = dockerInstallation;
         this.dockerHost = dockerHost;
-        this.dockerRegistryCredentials = dockerRegistryCredentials;
         this.verbose = verbose;
         this.privileged = privileged;
         this.volumes = volumes != null ? volumes : Collections.<Volume>emptyList();
@@ -123,10 +111,6 @@ public class DockerBuildWrapper extends BuildWrapper {
 
     public String getDockerInstallation() {
         return dockerInstallation;
-    }
-
-    public String getDockerRegistryCredentials() {
-        return dockerRegistryCredentials;
     }
 
     public String getDockerSlaveJenkinsRoot() {
@@ -229,12 +213,12 @@ public class DockerBuildWrapper extends BuildWrapper {
         runInContainer.enable();
 
         int result = launcher.launch()
-                           .cmds(blockingStartupCommand.split(" "))
-                           .envs(build.getEnvironment(listener))
-                           .stdout(listener)
-                           .pwd(build.getWorkspace())
-                           .start()
-                           .join();
+                             .cmds(blockingStartupCommand.split(" "))
+                             .envs(build.getEnvironment(listener))
+                             .stdout(listener)
+                             .pwd(build.getWorkspace())
+                             .start()
+                             .join();
         if (result != 0) {
             BuiltInContainer builtIn = build.getAction(BuiltInContainer.class);
             if (verbose) {
@@ -273,7 +257,7 @@ public class DockerBuildWrapper extends BuildWrapper {
         final Docker docker = new Docker(
                 dockerHost,
                 dockerInstallation,
-                dockerRegistryCredentials,
+                selector,
                 build,
                 launcher,
                 listener,
@@ -370,21 +354,6 @@ public class DockerBuildWrapper extends BuildWrapper {
 
     @Extension
     public static class DescriptorImpl extends BuildWrapperDescriptor {
-
-        public ListBoxModel doFillDockerRegistryCredentialsItems(@AncestorInPath Item item,
-                                                                 @QueryParameter String uri) {
-            return new StandardListBoxModel()
-                    .withEmptySelection()
-                    .withMatching(
-                            AuthenticationTokens.matcher(DockerRegistryToken.class),
-                            CredentialsProvider.lookupCredentials(
-                                    StandardCredentials.class,
-                                    item,
-                                    null,
-                                    Collections.<DomainRequirement>emptyList()
-                            )
-                    );
-        }
 
         @Override
         public String getDisplayName() {
