@@ -130,7 +130,6 @@ public class Docker implements Closeable {
                           EnvVars environment) throws IOException, InterruptedException {
         List<String> prefix = dockerCommandArgs();
         prefix.add("exec");
-        prefix.add("--tty");
         prefix.add("--user");
         prefix.add(userId);
         prefix.add(container);
@@ -157,7 +156,6 @@ public class Docker implements Closeable {
     public EnvVars getEnv(String container, Launcher launcher) throws IOException, InterruptedException {
         final ArgumentListBuilder args = dockerCommand()
                 .add("exec")
-                .add("--tty")
                 .add(container)
                 .add("env");
 
@@ -260,7 +258,7 @@ public class Docker implements Closeable {
         String docker0 = getDocker0Ip(launcher, image);
 
         ArgumentListBuilder args = dockerCommand()
-                .add("run", "--tty", "--detach");
+                .add("run", "--detach");
         if (privileged) {
             args.add("--privileged");
         }
@@ -322,8 +320,7 @@ public class Docker implements Closeable {
         if (status != 0) {
             throw new RuntimeException("Failed to run docker image");
         }
-        String container = out.toString("UTF-8").trim();
-        return container;
+        return out.toString("UTF-8").trim();
     }
 
     public void setupCredentials(AbstractBuild build) throws IOException, InterruptedException {
@@ -388,7 +385,7 @@ public class Docker implements Closeable {
         // NOTE: alpine:3.2 has a size of 2MB and contains the `/sbin/ip` binary
 
         args = dockerCommand()
-                .add("run", "--tty", "--rm")
+                .add("run", "--rm")
                 .add("--entrypoint")
                 .add("/sbin/ip")
                 .add("alpine:3.2")
@@ -408,8 +405,7 @@ public class Docker implements Closeable {
         String route = out.toString("UTF-8").trim();
 
         // equivalent to `awk '/default/ { print $3 }'` but we can't assume awk is available
-        String dockerhost = route.substring(route.indexOf("default")).split(" ")[2];
-        return dockerhost;
+        return route.substring(route.indexOf("default")).split(" ")[2];
     }
 
     private EnvVars getEnvVars() throws IOException, InterruptedException {
