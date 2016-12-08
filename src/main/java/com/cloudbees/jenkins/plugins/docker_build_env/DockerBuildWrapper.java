@@ -174,9 +174,7 @@ public class DockerBuildWrapper extends BuildWrapper {
 
             // mount tmpdir so we can access temporary file created to run shell build steps (and few others)
             String tmp = build.getWorkspace().act(GetTmpdir);
-            if (isEmpty(dockerSlaveTmpDir)) {
-                runInContainer.bindMount(tmp);
-            } else {
+            if (!isEmpty(dockerSlaveTmpDir)) {
                 runInContainer.bindMount(TokenMacro.expand(build, listener, dockerSlaveTmpDir), tmp);
             }
         } catch (MacroEvaluationException mee) {
