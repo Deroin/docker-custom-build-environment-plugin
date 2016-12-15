@@ -9,6 +9,7 @@ import hudson.tasks.BuildWrapper;
 import hudson.tasks.BuildWrapperDescriptor;
 import jenkins.model.Jenkins;
 import jenkins.security.MasterToSlaveCallable;
+import org.jenkinsci.plugins.docker.commons.credentials.DockerRegistryToken;
 import org.jenkinsci.plugins.docker.commons.credentials.DockerServerEndpoint;
 import org.jenkinsci.plugins.tokenmacro.MacroEvaluationException;
 import org.jenkinsci.plugins.tokenmacro.TokenMacro;
@@ -174,7 +175,9 @@ public class DockerBuildWrapper extends BuildWrapper {
 
             // mount tmpdir so we can access temporary file created to run shell build steps (and few others)
             String tmp = build.getWorkspace().act(GetTmpdir);
-            if (!isEmpty(dockerSlaveTmpDir)) {
+            if (isEmpty(dockerSlaveTmpDir)) {
+                runInContainer.bindMount(tmp);
+            } else {
                 runInContainer.bindMount(TokenMacro.expand(build, listener, dockerSlaveTmpDir), tmp);
             }
         } catch (MacroEvaluationException mee) {
@@ -187,17 +190,19 @@ public class DockerBuildWrapper extends BuildWrapper {
             runInContainer.bindMount(volume.getHostPath(), volume.getPath());
         }
 
-        runInContainer.getDocker().setupCredentials(build);
 
         if (runInContainer.container == null) {
             if (runInContainer.image == null) {
                 try {
-                    runInContainer.image = selector.prepareDockerImage(
-                            runInContainer.getDocker(),
-                            build,
-                            listener,
-                            forcePull
-                    );
+                    synchronized (DockerRegistryToken.class) { // When multiple builds try to pull an image they may be overriding credentials
+                        runInContainer.getDocker().setupCredentials(build);
+                        runInContainer.image = selector.prepareDockerImage(
+                                runInContainer.getDocker(),
+                                build,
+                                listener,
+                                forcePull
+                        );
+                    }
                 } catch (InterruptedException e) {
                     throw new RuntimeException("Interrupted");
                 }
